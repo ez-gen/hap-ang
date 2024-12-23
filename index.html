@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real-Time Emotion Detector</title>
+  <script src="https://cdn.jsdelivr.net/npm/face-api.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background: #f4f4f9;
+    }
+    video {
+      border: 2px solid #ccc;
+      margin: 10px auto;
+      display: block;
+      width: 60%;
+      height: auto;
+    }
+    canvas, .chart-container {
+      margin: 20px auto;
+      max-width: 80%;
+    }
+    button {
+      padding: 10px 20px;
+      margin-top: 20px;
+      font-size: 16px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+  </style>
+</head>
+<body>
+  <h1>Real-Time Emotion Detector</h1>
+  <video id="video" autoplay playsinline></video>
+  <div class="chart-container">
+    <canvas id="emotionChart"></canvas>
+  </div>
+  <button id="viewData">View Saved Data</button>
+
+  <script>
+    const video = document.getElementById('video');
+    const ctx = document.getElementById('emotionChart').getContext('2d');
+    const viewDataBtn = document.getElementById('viewData');
+
+    // Load models from raw GitHub URLs (direct links to raw files)
+    Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights/tiny_face_detector_model-weights_manifest.json'),
+      faceapi.nets.faceExpressionNet.loadFromUri('https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights/face_expression_model-weights_manifest.json')
+    ]).then(startVideo);
+
+    function startVideo() {
+      navigator.mediaDevices.getUserMedia({ video: {} })
+        .then((stream) => {
+          video.srcObject = stream;
+        })
+        .catch((err) => console.error("Error accessing webcam:", err));
+    }
+
+    // Chart.js configuration
+    const emotionChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: ['Anger', 'Happiness', 'Sadness', 'Surprise', 'Neutral'],
+        datasets: [{
+          label: 'Emotion Intensity',
+          data: [0, 0, 0, 0, 0], // Initial values
+          backgroundColor: ['red', 'yellow', 'blue', 'orange', 'green']
+        }]
+      },
+      options: {
+        scales: {
+          y: {
+            beginAtZero: true
+          }
+        }
+      }
+    });
+
+    video.addEventListener('play', () => {
+      const canvas = faceapi.createCanvasFromMedia(video);
+      document.body.append(canvas);
+
+      const displaySize = { width: video.videoWidth, height: video.videoHeight };
+      faceapi.matchDimensions(canvas, displaySize);
+
+      setInterval(async () => {
+        const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+          .withFaceExpressions();
+
+        canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+        const resizedDetections = faceapi.resizeResults(detections, displaySize);
+        faceapi.draw.drawDetections(canvas, resizedDetections);
+        faceapi.draw.drawFaceExpressions(canvas, resizedDetections);
+
+        if (detections.length > 0) {
+          const emotions = detections[0].expressions;
+
+          // Update chart with detected emotions
+          emotionChart.data.datasets[0].data = [
+            emotions.angry || 0,
+            emotions.happy || 0,
+            emotions.sad || 0,
+            emotions.surprised || 0,
+            emotions.neutral || 0
+          ];
+          emotionChart.update();
+
+          // Save data to Local Storage
+          const savedData = JSON.parse(localStorage.getItem('emotionData')) || [];
+          savedData.push({
+            timestamp: new Date().toISOString(),
+            emotions: emotions
+          });
+          localStorage.setItem('emotionData', JSON.stringify(savedData));
+        }
+      }, 1000);
+    });
+
+    // View saved data
+    viewDataBtn.addEventListener('click', () => {
+      const savedData = JSON.parse(localStorage.getItem('emotionData')) || [];
+      if (savedData.length === 0) {
+        alert('No data saved yet!');
+        return;
+      }
+
+      let message = "Saved Emotion Data:\n";
+      savedData.forEach((entry, index) => {
+        message += `\n#${index + 1} - ${entry.timestamp}\n`;
+        for (const [emotion, value] of Object.entries(entry.emotions)) {
+          message += `  ${emotion}: ${(value * 100).toFixed(2)}%\n`;
+        }
+      });
+
+      alert(message);
+    });
+  </script>
+</body>
+    </html>
